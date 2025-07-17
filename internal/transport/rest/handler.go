@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 
+	"github.com/bogomollov/15.07.2025/internal/archive"
 	"github.com/bogomollov/15.07.2025/internal/taskstore"
 	"github.com/bogomollov/15.07.2025/internal/transport/response"
 )
@@ -21,7 +23,6 @@ func GetHandler(w http.ResponseWriter, r *http.Request) {
 			data, found := store.GetTask(idInt)
 			if !found {
 				w.WriteHeader(http.StatusOK)
-				return
 			} else {
 				response.JSON(w, data, http.StatusOK)
 			}
@@ -34,7 +35,7 @@ func GetHandler(w http.ResponseWriter, r *http.Request) {
 func CreateHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "POST" {
 		newTask := taskstore.Task{
-			Status: "created",
+			Status: taskstore.TaskStatusCreated,
 		}
 
 		data, err := store.CreateTask(newTask)
@@ -50,37 +51,63 @@ func CreateHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func AddLinksInTask(w http.ResponseWriter, r *http.Request) {
-	if r.Method == "POST" {
+func AddLinksHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	} else {
 		pathSegments := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/tasks/"), "/")
 		if len(pathSegments) < 1 || pathSegments[0] == "" {
-			response.JSON(w, map[string]string{"error": "Отсутствует идентификатор в URL"}, http.StatusBadRequest)
+			response.JSONError(w, response.IDNotFound, http.StatusBadRequest)
 			return
 		}
-		id := pathSegments[0]
-		if id != "" {
-		idInt, _ := strconv.Atoi(id)
-		
+		idStr := pathSegments[0]
 
-		var AddLinksBody struct {
+		idInt, err := strconv.Atoi(idStr)
+		if err != nil {
+			response.JSONError(w, response.IDInvalid, http.StatusBadRequest)
+			return
+		}
+
+		var addLinksBody struct {
 			Links []string `json:"links"`
 		}
 		decoder := json.NewDecoder(r.Body)
 		defer r.Body.Close()
-		if err := decoder.Decode(&AddLinksBody); err != nil {
-			response.JSON(w, map[string]string{"error": "Отсутствуют links в body"}, http.StatusBadRequest)
+
+		if err := decoder.Decode(&addLinksBody); err != nil {
+			response.JSONError(w, response.AddLinksError, http.StatusBadRequest)
 			return
 		}
-		task, err := store.UpdateTask(idInt, AddLinksBody.Links)
+
+		var filteredLinks []string
+		exts := map[string]struct{}{
+			".pdf":  {},
+			".jpeg": {},
+		}
+
+		for _, link := range addLinksBody.Links {
+			cleanLink := strings.Split(link, "?")[0]
+			cleanLink = strings.Split(cleanLink, "#")[0]
+
+			ext := strings.ToLower(filepath.Ext(cleanLink))
+			if _, ok := exts[ext]; ok {
+				filteredLinks = append(filteredLinks, link)
+			}
+		}
+
+		if len(filteredLinks) == 0 {
+			response.JSONError(w, response.LinksNotFound, http.StatusBadRequest)
+			return
+		}
+
+		task, err := store.UpdateTask(idInt, filteredLinks)
 		if err != nil {
-			if errors.Is(err, response.TaskNoFound) {
-				response.JSON(w, map[string]string{"error": err.Error()}, http.StatusNotFound)
+			if errors.Is(err, response.TaskNotFound) {
+				response.JSONError(w, response.TaskNotFound, http.StatusNotFound)
 			}
 		} else {
 			response.JSON(w, task, http.StatusOK)
+			go archive.WriteArchive(task.ID)
 		}
-	}
-	} else {
-		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
 }
