@@ -21,7 +21,7 @@ type TaskStore struct {
 	tasks map[int]Task
 }
 
-var GlobalStore = New()
+var GlobalStore = New() // глобальное хранилище task
 
 func New() *TaskStore {
 	return &TaskStore{
@@ -29,13 +29,21 @@ func New() *TaskStore {
 	}
 }
 
+// получение задачи
 func (ts *TaskStore) GetTask(id int) (Task, bool) {
 	task, err := ts.tasks[id]
 	return task, err
 }
 
+// создание задачи
 func (ts *TaskStore) CreateTask(task Task) (Task, error) {
-	if len(ts.tasks) == 3 {
+	var count int = 0
+	for _, t := range ts.tasks {
+		if t.Status == TaskStatusProcessing || t.Status == TaskStatusCreated {
+			count++
+		}
+	}
+	if count == 3 {
 		return Task{}, response.ErrorTaskLimit
 	}
 	task.ID = len(ts.tasks) + 1
@@ -43,6 +51,7 @@ func (ts *TaskStore) CreateTask(task Task) (Task, error) {
 	return task, nil
 }
 
+// обновление задачи + ссылки
 func (ts *TaskStore) UpdateTask(id int, links []string) (Task, error) {
 	task, exists := ts.tasks[id]
 	if !exists {
@@ -54,13 +63,21 @@ func (ts *TaskStore) UpdateTask(id int, links []string) (Task, error) {
 	return task, nil
 }
 
-func (ts *TaskStore) UpdateTaskURL(id int, url string) (Task, error) {
+// обновление статуса задачи
+func (ts *TaskStore) UpdateTaskStatus(id int, status, url string) (Task, error) {
 	task, exists := ts.tasks[id]
 	if !exists {
 		return Task{}, response.TaskNotFound
 	}
-	task.Status = TaskStatusCompleted
-	task.Download_URL = url
+	task.Status = status
+	if url != "" {
+		task.Download_URL = url
+	}
 	ts.tasks[id] = task
 	return task, nil
+}
+
+// установка URL для скачивания
+func (ts *TaskStore) UpdateTaskURL(id int, url string) (Task, error) {
+	return ts.UpdateTaskStatus(id, TaskStatusCompleted, url)
 }

@@ -18,6 +18,7 @@ var (
 	once     sync.Once
 )
 
+// загрузка .env
 func Load() *Config {
 	once.Do(func() {
 		err := godotenv.Load()

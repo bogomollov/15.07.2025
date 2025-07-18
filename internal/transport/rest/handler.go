@@ -22,7 +22,7 @@ func GetHandler(w http.ResponseWriter, r *http.Request) {
 			idInt, _ := strconv.Atoi(id)
 			data, found := store.GetTask(idInt)
 			if !found {
-				w.WriteHeader(http.StatusOK)
+				response.JSONError(w, response.TaskNotFound, http.StatusNotFound)
 			} else {
 				response.JSON(w, data, http.StatusOK)
 			}
@@ -41,7 +41,7 @@ func CreateHandler(w http.ResponseWriter, r *http.Request) {
 		data, err := store.CreateTask(newTask)
 		if err != nil {
 			if errors.Is(err, response.ErrorTaskLimit) {
-				w.WriteHeader(http.StatusServiceUnavailable)
+				response.JSONError(w, err, http.StatusServiceUnavailable)
 			}
 		} else {
 			response.JSON(w, data, http.StatusCreated)
@@ -51,16 +51,16 @@ func CreateHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func AddLinksHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
+func PatchHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "PATCH" {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	} else {
-		pathSegments := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/tasks/"), "/")
-		if len(pathSegments) < 1 || pathSegments[0] == "" {
-			response.JSONError(w, response.IDNotFound, http.StatusBadRequest)
+		path := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/tasks/"), "/")
+		if len(path) < 1 || path[0] == "" {
+			response.JSONError(w, response.IDURLNotFound, http.StatusBadRequest)
 			return
 		}
-		idStr := pathSegments[0]
+		idStr := path[0]
 
 		idInt, err := strconv.Atoi(idStr)
 		if err != nil {
@@ -73,7 +73,6 @@ func AddLinksHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		decoder := json.NewDecoder(r.Body)
 		defer r.Body.Close()
-
 		if err := decoder.Decode(&addLinksBody); err != nil {
 			response.JSONError(w, response.AddLinksError, http.StatusBadRequest)
 			return
@@ -83,8 +82,8 @@ func AddLinksHandler(w http.ResponseWriter, r *http.Request) {
 		exts := map[string]struct{}{
 			".pdf":  {},
 			".jpeg": {},
+			".jpg":  {},
 		}
-
 		for _, link := range addLinksBody.Links {
 			cleanLink := strings.Split(link, "?")[0]
 			cleanLink = strings.Split(cleanLink, "#")[0]
@@ -94,7 +93,6 @@ func AddLinksHandler(w http.ResponseWriter, r *http.Request) {
 				filteredLinks = append(filteredLinks, link)
 			}
 		}
-
 		if len(filteredLinks) == 0 {
 			response.JSONError(w, response.LinksNotFound, http.StatusBadRequest)
 			return
@@ -107,7 +105,10 @@ func AddLinksHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		} else {
 			response.JSON(w, task, http.StatusOK)
-			go archive.WriteArchive(task.ID)
+			updatedTask, _ := store.GetTask(idInt)
+			if len(updatedTask.Links) >= 3 {
+				go archive.WriteArchive(task.ID)
+			}
 		}
 	}
 }
